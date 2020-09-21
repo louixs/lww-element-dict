@@ -1,5 +1,6 @@
 (ns lww-element.core
-  (:refer-clojure :exclude [get merge remove])
+  (:refer-clojure :exclude [get merge remove update])
+  (:require [clojure.set :as set])
   (:import [clojure.lang IPersistentMap ILookup]))
 
 ;; LWW-element-Set - similar implementation as dict
@@ -53,24 +54,20 @@
 ;;    :removed {}})
 
 (defn ts-desc-sorted-set
-  "Descending sorted set orderd by ts key in items."
+  "Descending sorted set orderd by ts.
+  You can get the latest item by using the first function."
   [& items]
-  (apply sorted-set-by #(< (:ts %1) (:ts %2)) items))
+  (apply sorted-set-by #(> (:ts %1) (:ts %2)) items))
 
-(defn make-item-value [v]
+(defn make-item-val [v]
   {:val v
    :ts (now)})
 
 (defn make-item [k v]
-  {k (make-item-value v)})
+  {k (ts-desc-sorted-set (make-item-val v))})
 
 (defn make-dict-items
-  "Use this to create items in either added or removed entries of Dict.
-  e.g.
-  (make-dict-items {:title 'Language Notes'
-                    :note 'This is my notes.'})
-  ;; => {:title {:val 'Language Notes', :ts 1600671280235},
-         :note {:val 'This is my notes.', :ts 1600671280235}}"
+  "Use this to create items in either added or removed entries of Dict"
   [m]
   (reduce-kv
    (fn [res k v]
@@ -91,7 +88,7 @@
    {:pre [(map? m)]}
    {:id (uuid)
     :added (make-dict-items m)
-    :removed {}}))
+    :removed #{}}))
 
 (defn make-dict
   ([]
@@ -106,8 +103,6 @@
 ;; note variadic args are not supported in defprotocol
 (defprotocol Add
  (add [d k v]))
-;; (def d (make-dict {}))
-;; (add d :a 1) => #lww-element{:a 1}
 
 (extend-protocol Add
   Dict
@@ -119,7 +114,42 @@
     ;; exists, since it is a function
     ;; when the item is updated,
     ;; timestamp will be the latest one as well
-    (assoc-in d [:added k] (k (make-item k v)))))
+    ;; This only adds items if the key doesn't exist
+
+    ;; if it's in remove, then move it back to added
+    (cond
+     (contains? (:removed d) k)
+       (let [entry (clojure.core/get (:removed d) k)
+             new-entry #{(make-item-val v)}
+             merged-entries (union-ts-desc-sort-set entry new-entry)]
+         (-> d
+             ;; remove the entry from removed
+             (clojure.core/update :removed #(dissoc % k))
+             ;; add the new merged entry to added
+             (assoc-in [:added k] merged-entries)))
+     ;; if there is no entry in added, just add a new entry
+     (not (contains? (:added d) k))
+       (assoc-in d [:added k] (k (make-item k v)))
+     :else
+     ;; otherwise, don't don anything
+      d)))
+
+(defn union-ts-desc-sort-set [x y]
+  (apply ts-desc-sorted-set (set/union x y)))
+
+(defn -update [d k v]
+  (if (contains? (:added d) k)
+    (update-in d [:added k] #(union-ts-desc-sort-set % (k (make-item k v))))
+    d))
+
+(defprotocol Update
+  "Retrieve the value of the specified value."
+  (update [d k v]))
+
+(extend-protocol Update
+  Dict
+  (update [d k v]
+    (-update d k v)))
 
 (defprotocol Get
   "Retrieve the value of the specified value"
@@ -128,20 +158,18 @@
 (extend-protocol Get
   Dict
   (get [d k]
-    (get-in d [:added k :val])))
+    ;; Note that this implementation
+    ;; only retrieves the latest value
+    (-> d (get-in [:added k]) first :val)))
 
-;; get
-;; (get d :a) => 1
-
-;; remove
-;; (remove d :a) => #lww-element{}
-
-(defn remove-from-dict [d k]
+(defn -remove [d k]
   (if (contains? (:added d) k)
     (let [added (:added d)
           entries-to-remove (select-keys added [k])
+          entries-to-remove-ts-updated (clojure.core/update entries-to-remove k
+                                        #(map (fn [x] (assoc x :ts (now))) %))
           new-removed (clojure.core/merge (:removed d)
-                                          entries-to-remove)
+                                          entries-to-remove-ts-updated)
           new-added (dissoc added k)]
       (assoc d :added new-added
                :removed new-removed))
@@ -153,10 +181,8 @@
 (extend-protocol Remove
   Dict
   (remove [d k]
-    (remove-from-dict d k)))
+    (-remove d k)))
 
-(defprotocol Merge
-  (merge [d1 d2]))
 ;; merge
 ;; (def d1 (lww-elemt-dict {}))
 ;; (def d2 (lww-elemt-dict {}))
@@ -196,20 +222,68 @@
   ()
 )
 
-(defn mmm [d1 d2]
-(let [added (merge-added d1 d2)
-      removed (merge-removed d1 d2)]
-;; still removed
-(reduce-kv
- (fn [res k v]
-    (if (contains? res k)
+;; Use this like this
+;; (merge-items (:added d1) (:added d2))
+(defn merge-items [x y]
+  (merge-with union-ts-desc-sort-set x y))
 
-     (let [added-entry (clojure.core/get added k)
-           removed-entry v
-           chosen-entry (ts-conflict-resolver added-entry removed-entry pick-first)]
-       (clojure.core/merge res chosen-entry))
-     res))
-)))
+(defn -merge
+  "Bias can be towards either :added or :removed.
+   If not supplied, it defaults towards :added."
+  ([d1 d2]
+   (-merge d1 d2 :added))
+  ([d1 d2 bias]
+   (if (identical? (:id d1) (:id d2))
+     (let [added (merge-items (:added d1) (:added d2))
+           removed (merge-items (:removed d1) (:removed d2))
+           id (:id d1)]
+       (->> removed
+            (reduce-kv
+             (fn [res k v]
+               ;; if added has the same key in removed
+               (if (contains? added k)
+                 (cond
+                   (> (:ts (first v)) (:ts (first (clojure.core/get added k))))
+                   ;; if the newest item's timestamp in removed is
+                   ;; newer, then the items need to be moved to removed
+                   ;; if the time stamp happens to be the same
+                   ;; use the bias provided (add or remove) and move the items
+                   ;; otherwise merge the items and do the opposite
+                   (do
+                     ;; merge and add to removed
+                     (update-in res [:removed k]
+                                #(set/union % (union-ts-desc-sort-set v (clojure.core/get added k))))
+                     ;; remove from added
+                     (clojure.core/update res :added #(dissoc % k)))
+                   (= (:ts (first v)) (:ts (first (clojure.core/get added k))))
+                   (do
+                     (if (= bias :added)
+                       ;; refactor
+                       (do
+                         (update-in res [:added k]
+                                    #(set/union % (union-ts-desc-sort-set v (clojure.core/get added k))))
+                         (clojure.core/update res :removed #(dissoc % k)))
+                       (do
+                         (update-in res [:removed k]
+                                    #(set/union % (union-ts-desc-sort-set v (clojure.core/get removed k))))
+                         (clojure.core/update res :added #(dissoc % k))))
+                     )
+                   :else
+                   (do
+                     (update-in res [:added k]
+                                #(union-ts-desc-sort-set % v))
+                     (clojure.core/update res :removed #(dissoc % k))))
+                 res))
+             {:added added
+              :removed removed})))
+     (throw (Exception. "Abort merge as you are probably not merging replicate.")))))
+
+(defprotocol Merge
+  (merge [d1 d2]))
+
+(extend-protocol Merge
+  (merge [d1 d2]
+    (-merge d1 d2)))
 
 ;; Merge cases
 ;; key collision
