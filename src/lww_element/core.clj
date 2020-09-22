@@ -24,10 +24,10 @@
 ;; from other open sourced implementations.
 
 ;; utils
-(defn now []
+(defn- now []
   (inst-ms (java.util.Date.)))
 
-(defn uuid [] (str (java.util.UUID/randomUUID)))
+(defn- uuid [] (str (java.util.UUID/randomUUID)))
 ;; need to convert to be able to compare
 
 ;; LWW-Element (Last Write Wins Elelent)
@@ -47,26 +47,23 @@
 
 (defrecord Dict [id added removed])
 
-;; This should be a spec
-;; (def dict-default
-;;   {:id nil
-;;    :added {}
-;;    :removed {}})
-
-(defn ts-desc-sorted-set
+(defn- ts-desc-sorted-set
   "Descending sorted set orderd by ts.
   You can get the latest item by using the first function."
   [& items]
   (apply sorted-set-by #(> (:ts %1) (:ts %2)) items))
 
-(defn make-item-val [v]
+(defn- union-ts-desc-sort-set [x y]
+  (apply ts-desc-sorted-set (set/union x y)))
+
+(defn- make-item-val [v]
   {:val v
    :ts (now)})
 
-(defn make-item [k v]
+(defn- make-item [k v]
   {k (ts-desc-sorted-set (make-item-val v))})
 
-(defn make-dict-items
+(defn- make-dict-items
   "Use this to create items in either added or removed entries of Dict"
   [m]
   (reduce-kv
@@ -77,7 +74,7 @@
 
 ;; create
 ;; Add ID when creating so merge knows when merging two instances of the same dict
-(defn init-dict
+(defn- init-dict
   "Initialize dictionary data structure when
    instantiating a Dict. This can only be used
    when instantiating since it will automatically
@@ -90,6 +87,7 @@
     :added (make-dict-items m)
     :removed #{}}))
 
+;; API
 (defn make-dict
   ([]
    (make-dict {}))
@@ -133,9 +131,6 @@
      :else
      ;; otherwise, don't don anything
       d)))
-
-(defn union-ts-desc-sort-set [x y]
-  (apply ts-desc-sorted-set (set/union x y)))
 
 (defn -update [d k v]
   (if (contains? (:added d) k)
@@ -184,22 +179,6 @@
     (-remove d k)))
 
 ;; merge
-;; (def d1 (lww-elemt-dict {}))
-;; (def d2 (lww-elemt-dict {}))
-;; (add d :a 1)
-;; (add d :a 2)
-;; (merge d1 d2) => #lww-element{:a 2}
-
-;; merge add
-
-(defn pick-first [a b]
-  a)
-
-(defn pick-second [a b]
-  b)
-
-;; Use this like this
-;; (merge-items (:added d1) (:added d2))
 (defn merge-items [x y]
   (merge-with union-ts-desc-sort-set x y))
 
@@ -258,6 +237,7 @@
   (merge [d1 d2]))
 
 (extend-protocol Merge
+  Dict
   (merge [d1 d2]
     (-merge d1 d2)))
 
