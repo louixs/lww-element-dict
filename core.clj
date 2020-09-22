@@ -198,30 +198,6 @@
 (defn pick-second [a b]
   b)
 
-
-(defn ts-conflict-resolver [a b bias-fn]
-  (let [ts-a (:ts a)
-        ts-b (:ts b)]
-    (cond
-      (> ts-a ts-b) a
-      (< ts-a ts-b) b
-      (= ts-a ts-b) (bias-fn a b) ;; what to do when entries have exactly the same time?
-      )))
-
-(defn merge-dict [d1 d2]
-  ;; Check ID to ensure
-  ;; you are merging replicas
-  ;; merge added first
-  ;; then removed ones
-  ;; this way you'll not remove entries without checking
-  )
-
-(defn merge-added [m1 m2]
-  ;; move the winning ones to add
-  ;; move the losing ones to remove
-  ()
-)
-
 ;; Use this like this
 ;; (merge-items (:added d1) (:added d2))
 (defn merge-items [x y]
