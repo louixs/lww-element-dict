@@ -1,5 +1,5 @@
 (ns lww-element.core-test
-  (:require [clojure.test :as t]
+  (:require [clojure.test :as t :refer [deftest is testing]]
             [lww-element.core :as lww]))
 
 
@@ -7,7 +7,7 @@
                        :author "Ryuei Sasaki"}))
 
 ;; Init
-(t/deftest make-dict-tests
-  (t/testing "it creates a dictionary with expected keys and values"
-    (t/is
+(deftest make-dict-tests
+  (testing "it creates a dictionary with expected keys and values"
+    (is
      (contains? d :id))))
