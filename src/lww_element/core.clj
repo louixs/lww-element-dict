@@ -1,7 +1,6 @@
 (ns lww-element.core
   (:refer-clojure :exclude [get merge remove update])
-  (:require [clojure.set :as set])
-  (:import [clojure.lang IPersistentMap ILookup]))
+  (:require [clojure.set :as set]))
 
 ;; LWW-element-Set - similar implementation as dict
 ;; Has add set and remove set with a timestamp for each element
@@ -23,27 +22,10 @@
 ;; those but we expect you to come up with the implementation yourself without any help
 ;; from other open sourced implementations.
 
-;; utils
 (defn- now []
   (inst-ms (java.util.Date.)))
 
 (defn- uuid [] (str (java.util.UUID/randomUUID)))
-;; need to convert to be able to compare
-
-;; LWW-Element (Last Write Wins Elelent)
-;; there can be LWW-Element-Set, Dict or Map, Seq etc.
-
-;; (defprotocol LWW-Element
-;;   (get [this data])
-;;   (assoc [data])
-;;   (dissoc [data]))
-
-;; You can also do something this to make it more integrated with Clojure's primitive data types
-;; in this case with map, by using Java interface
-;; (deftype LWW-Element-Dict [data]
-;;   ILookup
-;;   (valAt [_ k]
-;;     (.valAt data k)))
 
 (defrecord Dict [id added removed])
 
@@ -56,19 +38,19 @@
 (defn- union-ts-desc-sort-set [x y]
   (apply ts-desc-sorted-set (set/union x y)))
 
-(defn- make-item-val [v]
+(defn- make-item-val [v ts]
   {:val v
-   :ts (now)})
+   :ts ts})
 
-(defn- make-item [k v]
-  {k (ts-desc-sorted-set (make-item-val v))})
+(defn- make-item [k v ts]
+  {k (ts-desc-sorted-set (make-item-val v ts))})
 
 (defn- make-dict-items
   "Use this to create items in either added or removed entries of Dict"
-  [m]
+  [m ts]
   (reduce-kv
    (fn [res k v]
-     (clojure.core/merge res (make-item k v)))
+     (clojure.core/merge res (make-item k v ts)))
    {}
    m))
 
@@ -79,32 +61,55 @@
    instantiating a Dict. This can only be used
    when instantiating since it will automatically
    add the map entries passed in to the 'added' items."
-  ([]
-   (init-dict {}))
-  ([m]
-   {:pre [(map? m)]}
-   {:id (uuid)
-    :added (make-dict-items m)
-    :removed #{}}))
+  [m id ts]
+  {:pre [(map? m)]}
+  {:id id
+   :added (make-dict-items m ts)
+   :removed {}})
 
 ;; API
 (defn make-dict
   ([]
    (make-dict {}))
   ([m]
+   (make-dict m (uuid) (now)))
+  ([m id]
+   (make-dict m id (now)))
+  ([m id ts]
    {:pre [(map? m)]}
-   (map->Dict (init-dict m))))
+   (map->Dict (init-dict m id ts))))
 
 ;; add
 ;; update
 ;; (update d :a 2) => #lww-element{:a 2}
 ;; note variadic args are not supported in defprotocol
 (defprotocol Add
- (add [d k v]))
+  (add [d k v] [d k v ts]))
+
+(defn -add
+  ([d k v]
+   (-add d k v (now)))
+  ([d k v ts]
+   (cond
+     (contains? (:removed d) k)
+       (let [existing-entry (clojure.core/get (:removed d) k)
+             new-entry #{(make-item-val v ts)}
+             merged-entries (union-ts-desc-sort-set existing-entry new-entry)]
+         (-> d
+             ;; remove the entry from removed
+             (clojure.core/update :removed #(dissoc % k))
+             ;; add the new merged entry to added
+             (assoc-in [:added k] merged-entries)))
+       ;; if there is no entry in added, just add a new entry
+     (not (contains? (:added d) k))
+       (assoc-in d [:added k] (k (make-item k v ts)))
+     :else
+     ;; otherwise, don't do anything
+     d)))
 
 (extend-protocol Add
   Dict
-  (add [d k v]
+  (add
     ;; This takes care of both adding
     ;; and updating since
     ;; assoc used in add-item
@@ -115,27 +120,18 @@
     ;; This only adds items if the key doesn't exist
 
     ;; if it's in remove, then move it back to added
-    (cond
-     (contains? (:removed d) k)
-       (let [entry (clojure.core/get (:removed d) k)
-             new-entry #{(make-item-val v)}
-             merged-entries (union-ts-desc-sort-set entry new-entry)]
-         (-> d
-             ;; remove the entry from removed
-             (clojure.core/update :removed #(dissoc % k))
-             ;; add the new merged entry to added
-             (assoc-in [:added k] merged-entries)))
-     ;; if there is no entry in added, just add a new entry
-     (not (contains? (:added d) k))
-       (assoc-in d [:added k] (k (make-item k v)))
-     :else
-     ;; otherwise, don't don anything
-      d)))
+    ([d k v]
+     (-add d k v))
+    ([d k v ts]
+     (-add d k v ts))))
 
-(defn -update [d k v]
-  (if (contains? (:added d) k)
-    (update-in d [:added k] #(union-ts-desc-sort-set % (k (make-item k v))))
-    d))
+(defn -update
+  ([d k v]
+   (-update d k v (now)))
+  ([d k v ts]
+   (if (contains? (:added d) k)
+     (update-in d [:added k] #(union-ts-desc-sort-set % (k (make-item k v ts))))
+     d)))
 
 (defprotocol Update
   "Retrieve the value of the specified value."
@@ -157,26 +153,32 @@
     ;; only retrieves the latest value
     (-> d (get-in [:added k]) first :val)))
 
-(defn -remove [d k]
-  (if (contains? (:added d) k)
-    (let [added (:added d)
-          entries-to-remove (select-keys added [k])
-          entries-to-remove-ts-updated (clojure.core/update entries-to-remove k
-                                        #(map (fn [x] (assoc x :ts (now))) %))
-          new-removed (clojure.core/merge (:removed d)
-                                          entries-to-remove-ts-updated)
-          new-added (dissoc added k)]
-      (assoc d :added new-added
-               :removed new-removed))
-    d))
+(defn -remove
+  ([d k]
+   (-remove d k (now)))
+  ([d k ts]
+   (if (contains? (:added d) k)
+     (let [added (:added d)
+           entries-to-remove (select-keys added [k])
+           entries-to-remove-ts-updated (clojure.core/update entries-to-remove k
+                                                             #(map (fn [x] (assoc x :ts ts)) %))
+           new-removed (clojure.core/merge (:removed d)
+                                           entries-to-remove-ts-updated)
+           new-added (dissoc added k)]
+       (assoc d :added new-added
+                :removed new-removed))
+     d)))
 
 (defprotocol Remove
-  (remove [d k]))
+  (remove [d k] [d k ts]))
 
 (extend-protocol Remove
   Dict
-  (remove [d k]
-    (-remove d k)))
+  (remove
+    ([d k]
+     (-remove d k))
+    ([d k ts]
+     (-remove d k ts))))
 
 ;; merge
 (defn merge-items [x y]
