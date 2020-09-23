@@ -29,11 +29,29 @@
 
 (defrecord Dict [id added removed])
 
+(defn- cmp-ts-reverse [x y]
+  (compare (:ts y) (:ts x)))
+
+(defn- cmp-val-reverse [x y]
+  (compare (:val y) (:val x)))
+
+(defn- cmp-ts-vl-reverse
+  "Compare ts first and if there's a tie break
+  use val to compare"
+  [x y]
+  (let [c (cmp-ts-reverse x y)]
+    (if-not (zero? c)
+      c
+      (cmp-val-reverse x y))))
+
 (defn- ts-desc-sorted-set
   "Descending sorted set orderd by ts.
   You can get the latest item by using the first function."
+  ;; in case ts is exactly the same, just providing one compare
+  ;; will not add element to set and get lost
+  ;; providing a tie-breaking function to prevent that
   [& items]
-  (apply sorted-set-by #(> (:ts %1) (:ts %2)) items))
+  (apply sorted-set-by cmp-ts-vl-reverse items))
 
 (defn- union-ts-desc-sort-set [x y]
   (apply ts-desc-sorted-set (set/union x y)))
@@ -79,10 +97,6 @@
    {:pre [(map? m)]}
    (map->Dict (init-dict m id ts))))
 
-;; add
-;; update
-;; (update d :a 2) => #lww-element{:a 2}
-;; note variadic args are not supported in defprotocol
 (defprotocol Add
   (add [d k v] [d k v ts]))
 
@@ -135,12 +149,15 @@
 
 (defprotocol Update
   "Retrieve the value of the specified value."
-  (update [d k v]))
+  (update [d k v] [d k v ts]))
 
 (extend-protocol Update
   Dict
-  (update [d k v]
-    (-update d k v)))
+  (update
+    ([d k v]
+     (-update d k v))
+    ([d k v ts]
+     (-update d k v ts))))
 
 (defprotocol Get
   "Retrieve the value of the specified value"
@@ -161,7 +178,9 @@
      (let [added (:added d)
            entries-to-remove (select-keys added [k])
            entries-to-remove-ts-updated (clojure.core/update entries-to-remove k
-                                                             #(map (fn [x] (assoc x :ts ts)) %))
+                                                             #(->> %
+                                                                   (map (fn [x] (assoc x :ts ts)))
+                                                                   (apply ts-desc-sorted-set)))
            new-removed (clojure.core/merge (:removed d)
                                            entries-to-remove-ts-updated)
            new-added (dissoc added k)]
@@ -180,6 +199,17 @@
     ([d k ts]
      (-remove d k ts))))
 
+(defn- de-dupe [coll]
+  (->> coll
+   (group-by :val) ;; group by val to see if there are any dupe
+   (reduce-kv
+    (fn [res k v]
+      (if (not= 1 (count v)) ;; if dupe, pick the one with the latest timestamp
+        (conj res
+              (->> v (sort-by :ts >) first))
+        (concat res v)))
+    [])))
+
 ;; merge
 (defn merge-items [x y]
   (merge-with union-ts-desc-sort-set x y))
@@ -190,6 +220,7 @@
   ([d1 d2]
    (-merge d1 d2 :added))
   ([d1 d2 bias]
+   {:pre [(contains? #{:added :removed} bias)]}
    (if (identical? (:id d1) (:id d2))
      (let [added (merge-items (:added d1) (:added d2))
            removed (merge-items (:removed d1) (:removed d2))
@@ -203,45 +234,54 @@
                    (> (:ts (first v)) (:ts (first (clojure.core/get added k))))
                    ;; if the newest item's timestamp in removed is
                    ;; newer, then the items need to be moved to removed
-                   ;; if the time stamp happens to be the same
+                   ;; if the timestamp happens to be the same
                    ;; use the bias provided (add or remove) and move the items
                    ;; otherwise merge the items and do the opposite
+                   ;; merge and add to removed
                    (do
-                     ;; merge and add to removed
-                     (update-in res [:removed k]
-                                #(set/union % (union-ts-desc-sort-set v (clojure.core/get added k))))
-                     ;; remove from added
-                     (clojure.core/update res :added #(dissoc % k)))
+                     (-> res
+                         (update-in [:removed k]
+                                    #(->> (set/union % v (clojure.core/get added k))
+                                          de-dupe
+                                          (apply ts-desc-sorted-set)))
+                         ;; remove from added
+                         (clojure.core/update :added #(dissoc % k))))
                    (= (:ts (first v)) (:ts (first (clojure.core/get added k))))
-                   (do
-                     (if (= bias :added)
-                       ;; refactor
-                       (do
-                         (update-in res [:added k]
-                                    #(set/union % (union-ts-desc-sort-set v (clojure.core/get added k))))
-                         (clojure.core/update res :removed #(dissoc % k)))
-                       (do
-                         (update-in res [:removed k]
-                                    #(set/union % (union-ts-desc-sort-set v (clojure.core/get removed k))))
-                         (clojure.core/update res :added #(dissoc % k))))
-                     )
+                   (if (= bias :added)
+                     ;; refactor
+                     (-> res
+                         (update-in [:added k]
+                                    #(->> (set/union % v (clojure.core/get added k))
+                                          de-dupe
+                                          (apply ts-desc-sorted-set)))
+                         (clojure.core/update :removed #(dissoc % k)))
+                     (-> res
+                         (update-in [:removed k]
+                                    #(->> (set/union % v (clojure.core/get removed k))
+                                          de-dupe
+                                          (apply ts-desc-sorted-set)))
+                         (clojure.core/update :added #(dissoc % k))))
                    :else
-                   (do
-                     (update-in res [:added k]
-                                #(union-ts-desc-sort-set % v))
-                     (clojure.core/update res :removed #(dissoc % k))))
+                   (-> res
+                       (update-in [:added k]
+                                  #(union-ts-desc-sort-set % v))
+                       (clojure.core/update :removed #(dissoc % k))))
                  res))
-             {:added added
-              :removed removed})))
+             (map->Dict {:id id
+                         :added added
+                         :removed removed}))))
      (throw (Exception. "Abort merge as you are probably not merging replicate.")))))
 
 (defprotocol Merge
-  (merge [d1 d2]))
+  (merge [d1 d2] [d1 d2 bias]))
 
 (extend-protocol Merge
   Dict
-  (merge [d1 d2]
-    (-merge d1 d2)))
+  (merge
+    ([d1 d2]
+     (-merge d1 d2))
+    ([d1 d2 bias]
+     (-merge d1 d2 bias))))
 
 ;; Merge cases
 ;; key collision
