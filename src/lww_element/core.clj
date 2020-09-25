@@ -27,8 +27,6 @@
 
 (defn- uuid [] (str (java.util.UUID/randomUUID)))
 
-(defrecord Dict [id added removed])
-
 (defn- cmp-ts-reverse [x y]
   (compare (:ts y) (:ts x)))
 
@@ -85,7 +83,8 @@
    :added (make-dict-items m ts)
    :removed {}})
 
-;; API
+(defrecord Dict [id added removed])
+
 (defn make-dict
   ([]
    (make-dict {}))
@@ -124,16 +123,6 @@
 (extend-protocol Add
   Dict
   (add
-    ;; This takes care of both adding
-    ;; and updating since
-    ;; assoc used in add-item
-    ;; updates values if the key already
-    ;; exists, since it is a function
-    ;; when the item is updated,
-    ;; timestamp will be the latest one as well
-    ;; This only adds items if the key doesn't exist
-
-    ;; if it's in remove, then move it back to added
     ([d k v]
      (-add d k v))
     ([d k v ts]
@@ -170,7 +159,7 @@
     ;; only retrieves the latest value
     (-> d (get-in [:added k]) first :val)))
 
-(defn -remove
+(defn- -remove
   ([d k]
    (-remove d k (now)))
   ([d k ts]
@@ -226,7 +215,7 @@
       (put-entry entry to dedupe?)
       (update-in (butlast from) #(dissoc % (last from)))))
 
-(defn -merge
+(defn- -merge
   "Bias can be towards either :added or :removed.
    If not supplied, it defaults towards :added."
   ([d1 d2]
