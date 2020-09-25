@@ -99,7 +99,7 @@
 (defprotocol Add
   (add [d k v] [d k v ts]))
 
-(defn -add
+(defn- -add
   ([d k v]
    (-add d k v (now)))
   ([d k v ts]
