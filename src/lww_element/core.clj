@@ -211,15 +211,29 @@
     [])))
 
 ;; merge
-(defn merge-items [x y]
+(defn- merge-items [x y]
   (merge-with union-ts-desc-sort-set x y))
+
+(defn- put-entry [m entry to dedupe?]
+  {:pre [(boolean? dedupe?)]}
+  (update-in m to
+             #(cond->> (set/union % entry)
+                dedupe? de-dupe
+                true (apply ts-desc-sorted-set))))
+
+(defn- move-entry [m entry from to dedupe?]
+  (-> m
+      (put-entry entry to dedupe?)
+      (update-in (butlast from) #(dissoc % (last from)))))
 
 (defn -merge
   "Bias can be towards either :added or :removed.
    If not supplied, it defaults towards :added."
   ([d1 d2]
-   (-merge d1 d2 :added))
+   (-merge d1 d2 :added true))
   ([d1 d2 bias]
+   (-merge d1 d2 bias true))
+  ([d1 d2 bias dedupe?]
    {:pre [(contains? #{:added :removed} bias)]}
    (if (identical? (:id d1) (:id d2))
      (let [added (merge-items (:added d1) (:added d2))
@@ -228,52 +242,36 @@
        (->> removed
             (reduce-kv
              (fn [res k v]
-               ;; if added has the same key in removed
-               (if (contains? added k)
-                 (cond
-                   (> (:ts (first v)) (:ts (first (clojure.core/get added k))))
-                   ;; if the newest item's timestamp in removed is
-                   ;; newer, then the items need to be moved to removed
-                   ;; if the timestamp happens to be the same
-                   ;; use the bias provided (add or remove) and move the items
-                   ;; otherwise merge the items and do the opposite
-                   ;; merge and add to removed
-                   (do
-                     (-> res
-                         (update-in [:removed k]
-                                    #(->> (set/union % v (clojure.core/get added k))
-                                          de-dupe
-                                          (apply ts-desc-sorted-set)))
-                         ;; remove from added
-                         (clojure.core/update :added #(dissoc % k))))
-                   (= (:ts (first v)) (:ts (first (clojure.core/get added k))))
-                   (if (= bias :added)
-                     ;; refactor
+               (let [entry-in-added (clojure.core/get added k)
+                     entry-in-removed (clojure.core/get removed k)]
+                 ;; if added has the same key in removed
+                 (if (contains? added k)
+                   (cond
+                     (> (:ts (first v)) (:ts (first entry-in-added)))
+                     ;; if the newest item's timestamp in removed is
+                     ;; newer, then the items need to be moved to removed
+                     ;; if the timestamp happens to be the same
+                     ;; use the bias provided (add or remove) and move the items
+                     ;; otherwise merge the items and do the opposite
+                     ;; merge and add to removed
+                       (move-entry res entry-in-added [:added k] [:removed k] dedupe?)
+                     (= (:ts (first v)) (:ts (first entry-in-added)))
+                       (if (= bias :added)
+                         (move-entry res entry-in-added [:removed k] [:added k] dedupe?)
+                         (move-entry res entry-in-removed [:added k] [:removed k] dedupe?))
+                     :else
                      (-> res
                          (update-in [:added k]
-                                    #(->> (set/union % v (clojure.core/get added k))
-                                          de-dupe
-                                          (apply ts-desc-sorted-set)))
-                         (clojure.core/update :removed #(dissoc % k)))
-                     (-> res
-                         (update-in [:removed k]
-                                    #(->> (set/union % v (clojure.core/get removed k))
-                                          de-dupe
-                                          (apply ts-desc-sorted-set)))
-                         (clojure.core/update :added #(dissoc % k))))
-                   :else
-                   (-> res
-                       (update-in [:added k]
-                                  #(union-ts-desc-sort-set % v))
-                       (clojure.core/update :removed #(dissoc % k))))
-                 res))
+                                    #(union-ts-desc-sort-set % v))
+                         (clojure.core/update :removed #(dissoc % k))))
+                   res)))
              (map->Dict {:id id
                          :added added
                          :removed removed}))))
      (throw (Exception. "Abort merge as you are probably not merging replicate.")))))
 
 (defprotocol Merge
-  (merge [d1 d2] [d1 d2 bias]))
+  (merge [d1 d2] [d1 d2 bias] [d1 d2 bias dedupe?]))
 
 (extend-protocol Merge
   Dict
@@ -281,7 +279,9 @@
     ([d1 d2]
      (-merge d1 d2))
     ([d1 d2 bias]
-     (-merge d1 d2 bias))))
+     (-merge d1 d2 bias))
+    ([d1 d2 bias dedupe?]
+     (-merge d1 d2 bias dedupe?))))
 
 ;; Merge cases
 ;; key collision
@@ -313,21 +313,6 @@
 ;;   2e. both in removed but same timestamp -> use bias
 ;; 3. key that only exists in one replicat (either in added or removed) -> just added 
 
-;; tests cases
-;; create
-;; add
-;; get
-;; get items that don't exist
-;; update
-;; update items that don't exist -> add
-;; remove
-;; remove items that don't exist
-
-;; merge
-;; merge - timestamp same
-;; merge - empty dicts
-
-;; merge wrong types
 
 ;; This data structure can keep growing infinitely
 ;; TTL?
