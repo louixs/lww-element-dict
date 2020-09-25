@@ -259,6 +259,7 @@
                          :removed removed}))))
      (throw (Exception. "Abort merge as you are probably not merging replicate.")))))
 
+;; TODO make merge variadic
 (defprotocol Merge
   (merge [d1 d2] [d1 d2 bias] [d1 d2 bias dedupe?]))
 
