@@ -6,12 +6,6 @@
             [clojure.test.check.generators :as gen]
             [clojure.test.check.properties :as prop]))
 
-(def sort-idempotent-prop
-  (prop/for-all [v (gen/vector gen/int)]
-    (= (sort v) (sort (sort v)))))
-
-(tc/quick-check 100 sort-idempotent-prop)
-
 (def gen-map
   (gen/map gen/keyword gen/string-alphanumeric))
 
