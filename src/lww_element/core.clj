@@ -2,26 +2,6 @@
   (:refer-clojure :exclude [get merge remove update])
   (:require [clojure.set :as set]))
 
-;; LWW-element-Set - similar implementation as dict
-;; Has add set and remove set with a timestamp for each element
-;; Elements are added to an LWW-Element-Set by inserting the element into the add set, with a timestamp
-;; Elements are "removed" from the set by being moved to the remove set
-;; An element is a member of the set if it is in the add set, and either not in the remove set, or in the
-;; remove set but with an earlier timestamp than the latest timestamp in the add set
-;; Merging two replicas of the set consists of taking the union of the add sets and the union of the remove sets
-;; When timestamps are equal, use "bias. It can be biased towards adds or removals.
-
-;; LWW-element-dict
-;; Similar to LWW-Element-Set, the dictionary variant you are going to implement
-;; will store a timestamp for each key-value pair. In addition to the add and remove
-;; operations, the dictionary variant will also allow updating the value of a key.
-;; There should be a function to merge two dictionaries. Test cases should be clearly
-;; written and document what aspect of CRDT they test. We recommend you to spend no more
-;; than 4 hours on this challenge. The provided readings should be sufficient to
-;; understand LWW-Element-Set and CRDT on a high level. You are welcome to dig deeper on
-;; those but we expect you to come up with the implementation yourself without any help
-;; from other open sourced implementations.
-
 (defn- now []
   (inst-ms (java.util.Date.)))
 
@@ -70,8 +50,6 @@
    {}
    m))
 
-;; create
-;; Add ID when creating so merge knows when merging two instances of the same dict
 (defn- init-dict
   "Initialize dictionary data structure when
    instantiating a Dict. This can only be used
@@ -272,37 +250,3 @@
      (-merge d1 d2 bias))
     ([d1 d2 bias dedupe?]
      (-merge d1 d2 bias dedupe?))))
-
-;; Merge cases
-;; key collision
-;; 1. same keys in both added
-;;   add the latest timestamp one to added
-;;   move the lost one to removed
-;; 2. same keys in both removed
-;;
-;; no key collision
-;; 3. 
-
-;; 1. same key in added with different ts
-;; a. {:added {:title "1" :ts 1}} b. {:added {:title "2" :ts 2}} - pick b because last write wins
-;; Added exactly at the same time; which one to pick? - edge case
-;; {:added {:title "1" :ts 1}} {:added {:title "2" :ts 1}} - bias?
-;; 
-;; Same key in removed with different ts
-;; a. {:removed {:title "1" :ts 1}} b. {:removed {:title "2" :ts 2}} - pick b
-;; a. {:removed {:title "1" :ts 1}} b. {:removed {:title "2" :ts 1}} - which one?
-;; 
-;; a. {:add {:title "1" :ts 1}} b. {:removed {:title "2" :ts 2}} - pick b
-;; use sorted sets to handle collision case
-;;
-;; 2. same key but one replica has it in added and other in removed
-;;   2a. added one has later timestamp
-;;   2b. removed one has later timestamp
-;;   2c. one in added, removed but same timestamp -> use bias
-;;   2d. both in added but same timestamp -> use bias
-;;   2e. both in removed but same timestamp -> use bias
-;; 3. key that only exists in one replicat (either in added or removed) -> just added 
-
-
-;; This data structure can keep growing infinitely
-;; TTL?
