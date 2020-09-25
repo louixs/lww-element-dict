@@ -63,7 +63,9 @@ the added"
   (let [d (-> (lww/make-dict {:title "Language History"} "#id" 1))]
     (testing "it retrieves the current/latest value of an entry from added"
       (is (= "Language History"
-             (lww/get d :title))))))
+             (lww/get d :title))))
+    (testing "it returns nil if the key does not exist"
+      (is (nil? (lww/get d :non-existing-key))))))
 
 ;; Remove
 ;; Elements are "removed" from the set by being moved to the remove set
