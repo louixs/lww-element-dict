@@ -193,60 +193,72 @@
       (put-entry entry to dedupe?)
       (update-in (butlast from) #(dissoc % (last from)))))
 
-(defn- -merge
+;; TODO handle only one dict
+(defn- merge-dict
   "Bias can be towards either :added or :removed.
    If not supplied, it defaults towards :added."
-  ([d1 d2]
-   (-merge d1 d2 :added true))
-  ([d1 d2 bias]
-   (-merge d1 d2 bias true))
-  ([d1 d2 bias dedupe?]
-   {:pre [(contains? #{:added :removed} bias)]}
-   (if (identical? (:id d1) (:id d2))
-     (let [added (merge-items (:added d1) (:added d2))
-           removed (merge-items (:removed d1) (:removed d2))
-           id (:id d1)]
-       (->> removed
-            (reduce-kv
-             (fn [res k v]
-               (let [entry-in-added (clojure.core/get added k)
-                     entry-in-removed (clojure.core/get removed k)]
-                 ;; if added has the same key in removed
-                 (if (contains? added k)
-                   (cond
-                     (> (:ts (first v)) (:ts (first entry-in-added)))
-                     ;; if the newest item's timestamp in removed is
-                     ;; newer, then the items need to be moved to removed
-                     ;; if the timestamp happens to be the same
-                     ;; use the bias provided (add or remove) and move the items
-                     ;; otherwise merge the items and do the opposite
-                     ;; merge and add to removed
-                       (move-entry res entry-in-added [:added k] [:removed k] dedupe?)
-                     (= (:ts (first v)) (:ts (first entry-in-added)))
-                       (if (= bias :added)
-                         (move-entry res entry-in-added [:removed k] [:added k] dedupe?)
-                         (move-entry res entry-in-removed [:added k] [:removed k] dedupe?))
-                     :else
-                     (-> res
-                         (update-in [:added k]
-                                    #(union-ts-desc-sort-set % v))
-                         (clojure.core/update :removed #(dissoc % k))))
-                   res)))
-             (map->Dict {:id id
-                         :added added
-                         :removed removed}))))
-     (throw (Exception. "Abort merge as you are probably not merging replicate.")))))
+  [{:keys [bias dedupe?]
+    :or {bias :added
+         dedupe? true}}
+   d1 d2]
+  {:pre [(contains? #{:added :removed} bias)]}
+  (if (identical? (:id d1) (:id d2))
+    (let [added (merge-items (:added d1) (:added d2))
+          removed (merge-items (:removed d1) (:removed d2))
+          id (:id d1)]
+      (->> removed
+           (reduce-kv
+            (fn [res k v]
+              (let [entry-in-added (clojure.core/get added k)
+                    entry-in-removed (clojure.core/get removed k)]
+                ;; if added has the same key in removed
+                (if (contains? added k)
+                  (cond
+                    (> (:ts (first v)) (:ts (first entry-in-added)))
+                    ;; if the newest item's timestamp in removed is
+                    ;; newer, then the items need to be moved to removed
+                    ;; if the timestamp happens to be the same
+                    ;; use the bias provided (add or remove) and move the items
+                    ;; otherwise merge the items and do the opposite
+                    ;; merge and add to removed
+                    (move-entry res entry-in-added [:added k] [:removed k] dedupe?)
+                    (= (:ts (first v)) (:ts (first entry-in-added)))
+                    (if (= bias :added)
+                      (move-entry res entry-in-added [:removed k] [:added k] dedupe?)
+                      (move-entry res entry-in-removed [:added k] [:removed k] dedupe?))
+                    :else
+                    (-> res
+                        (update-in [:added k]
+                                   #(union-ts-desc-sort-set % v))
+                        (clojure.core/update :removed #(dissoc % k))))
+                  res)))
+            (map->Dict {:id id
+                        :added added
+                        :removed removed}))))
+    (throw (Exception. "Abort merge as you are probably not merging replicate."))))
 
-;; TODO make merge variadic
-(defprotocol Merge
-  (merge [d1 d2] [d1 d2 bias] [d1 d2 bias dedupe?]))
+(defprotocol Merge*
+  (merge* [opts] [opts d1] [opts d1 d2]))
 
-(extend-protocol Merge
-  Dict
-  (merge
-    ([d1 d2]
-     (-merge d1 d2))
-    ([d1 d2 bias]
-     (-merge d1 d2 bias))
-    ([d1 d2 bias dedupe?]
-     (-merge d1 d2 bias dedupe?))))
+(extend-protocol Merge*
+  clojure.lang.PersistentArrayMap
+  (merge*
+    ([opts]
+     nil)
+    ([opts d1]
+     d1)
+    ([opts d1 d2]
+     (merge-dict opts d1 d2))))
+
+;; protocol doesn't support
+;; variadic functions
+;; for simplicity making a map of opts mandatory
+(defn merge
+  ([opts]
+   (merge* opts))
+  ([opts d1]
+   (merge* opts d1))
+  ([opts d1 d2]
+   (merge* opts d1 d2))
+  ([opts d1 d2 & more]
+   (reduce (partial merge opts) (merge {} d1 d2) more)))

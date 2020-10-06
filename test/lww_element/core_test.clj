@@ -110,12 +110,14 @@ the added"
                                      #{{:val "Language History" :ts 4}
                                        {:val "New Title" :ts 3}}}}
              (lww/merge
+              
               (lww/remove replica :title 4)
               (lww/update d :title "New Title" 3))))
       (is (= #lww_element.core.Dict{:id "#id"
                                     :added {}
                                     :removed {:title #{{:val "Language History" :ts 2}}}}
              (lww/merge
+              
               (lww/remove replica :title 2)
               d))))
     (testing "if an entry is in added and removed and the timestamp is equal, bias (either :add or :remove) is used to chooses where to place it in the merged output, default bias is :add"
@@ -124,6 +126,7 @@ the added"
                                                       :ts 1}}}
                                     :removed {}}
              (lww/merge
+              
               (lww/remove replica :title 1)
               d)))
       (is (= #lww_element.core.Dict{:id "#id"
@@ -131,9 +134,10 @@ the added"
                                     :removed {:title #{{:val "Language History"
                                                         :ts 1}}}}
              (lww/merge
+              {:bias :removed}
               (lww/remove replica :title 1)
               d
-              :removed))))
+              ))))
     (testing "if there is no conflict, entries are merged to their respective places (added or removed)"
       (is (= #lww_element.core.Dict{:id "#id"
                                     :added
@@ -141,34 +145,54 @@ the added"
                                      :note #{{:val "This is a note." :ts 1}}}
                                     :removed {}}
              (lww/merge
+              
               (lww/add replica :note "This is a note." 1)
               d)))
       (is (= #lww_element.core.Dict{:id "#id"
                                     :added {:title #{{:val "Language History" :ts 1}}}
                                     :removed {:note #{{:val "This is a note." :ts 3}}}}
              (lww/merge
+              
               (-> replica
                   (lww/add :note "This is a note." 2)
                   (lww/remove :note 3))
               d))))
     (testing "if dedupe? is false it retains the values even if the value is the same; makes it possible to implement undo or state restoration feature based on time"
       (is (= #lww_element.core.Dict{:id "#id"
-                                    :added {}
                                     :removed
+                                    :added {}
                                     {:title #{{:val "Language History" :ts 2}
                                               {:val "Language History" :ts 1}}}}
              (lww/merge
+              {:bias :added
+               :dedupe? false}
               (lww/remove replica :title 2)
-              d
-              :added
-              false))))
+              d))))
+    ;; (testing "merge is variadic i.e. accepts any number of Dicts to merge"
+    ;;   (is (= #lww_element.core.Dict{:id "#id",
+    ;;                                 :added
+    ;;                                 {:title #{{:val "Language History", :ts 1}},
+    ;;                                  :foo #{{:val "foo", :ts 1}},
+    ;;                                  :bar #{{:val "bar", :ts 2}}},
+    ;;                                 :removed {}}
+    ;;          (lww/merge
+
+    ;;           (lww/add d :foo "foo" 1)
+    ;;           (lww/add d :bar "bar" 2)
+    ;;           d))))
+    (testing "when only one Dict is supplied, just return that"
+      (is (= d (lww/merge {} d))))
+    (testing "when only the options map is supplied return nil"
+      (is (nil? (lww/merge {}))))
     (testing "merging empty dicts returns empty dicts"
       (is (= #lww_element.core.Dict{:id "#id", :added {}, :removed {}}
              (lww/merge
+              
               (-> (lww/make-dict {} "#id" 1))
               (-> (lww/make-dict {} "#id" 1))))))
     (testing "if trying to merge non-replica i.e. dicts' ids are different it throws an error"
       (is (thrown? Exception
            (lww/merge
+            
             (lww/make-dict {:title "different dict"} "#different-id")
             d))))))
