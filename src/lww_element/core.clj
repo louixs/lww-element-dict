@@ -180,7 +180,6 @@
       (put-entry entry to)
       (update-in (butlast from) #(dissoc % (last from)))))
 
-;; TODO handle only one dict
 (defn- merge-dict
   "Bias can be towards either :added or :removed.
    If not supplied, it defaults towards :added."
