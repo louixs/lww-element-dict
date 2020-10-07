@@ -2,6 +2,8 @@
   (:refer-clojure :exclude [get merge remove update])
   (:require [clojure.set :as set]))
 
+(def max-size 10)
+
 (defn- now []
   (inst-ms (java.util.Date.)))
 
@@ -28,18 +30,21 @@
   ;; in case ts is exactly the same, just providing one compare
   ;; will not add element to set and get lost
   ;; providing a tie-breaking function to prevent that
-  [& items]
-  (apply sorted-set-by cmp-ts-vl-reverse items))
+  [max-size & items]
+  (->> items
+       (sort cmp-ts-vl-reverse)
+       (take max-size)
+       (apply sorted-set-by cmp-ts-vl-reverse)))
 
 (defn- union-ts-desc-sort-set [x y]
-  (apply ts-desc-sorted-set (set/union x y)))
+  (apply ts-desc-sorted-set max-size  (set/union x y)))
 
 (defn- make-item-val [v ts]
   {:val v
    :ts ts})
 
 (defn- make-item [k v ts]
-  {k (ts-desc-sorted-set (make-item-val v ts))})
+  {k (ts-desc-sorted-set max-size (make-item-val v ts))})
 
 (defn- make-dict-items
   "Use this to create items in either added or removed entries of Dict"
@@ -147,7 +152,7 @@
            entries-to-remove-ts-updated (clojure.core/update entries-to-remove k
                                                              #(->> %
                                                                    (map (fn [x] (assoc x :ts ts)))
-                                                                   (apply ts-desc-sorted-set)))
+                                                                   (apply ts-desc-sorted-set max-size)))
            new-removed (clojure.core/merge (:removed d)
                                            entries-to-remove-ts-updated)
            new-added (dissoc added k)]
@@ -173,7 +178,7 @@
 (defn- put-entry [m entry to]
   (update-in m to
              #(->> (set/union % entry)
-                   (apply ts-desc-sorted-set))))
+                   (apply ts-desc-sorted-set max-size))))
 
 (defn- move-entry [m entry from to]
   (-> m
