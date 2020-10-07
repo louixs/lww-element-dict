@@ -92,7 +92,7 @@ the added"
   (let [k :title
         d (-> (lww/make-dict {:title "Language History"} "#id" 1))
         replica d] ;; clojure doesn't mutate value so this isn't strictly necessary; this is for clarify
-    (testing "if an entry is in added and removed, the one with the latest timestamp wins. Note that if there are duplicate in values, the one with the latest timestamp is retained due to dedupe? being true by default."
+    (testing "if an entry is in added and removed, the one with the latest timestamp wins"
       (is (= #lww_element.core.Dict{:id "#id"
                                     :added
                                     {:title
@@ -106,17 +106,8 @@ the added"
             (lww/update d :title "Updated Title" 3))))
       (is (= #lww_element.core.Dict{:id "#id"
                                     :added {}
-                                    :removed
-                                    {:title
-                                     #{{:val "Language History" :ts 4}
-                                       {:val "New Title" :ts 3}}}}
-             (lww/merge
-              {}
-              (lww/remove replica :title 4)
-              (lww/update d :title "New Title" 3))))
-      (is (= #lww_element.core.Dict{:id "#id"
-                                    :added {}
-                                    :removed {:title #{{:val "Language History" :ts 2}}}}
+                                    :removed {:title #{{:val "Language History" :ts 2}
+                                                       {:val "Language History", :ts 1}}}}
              (lww/merge
               {}
               (lww/remove replica :title 2)
@@ -157,15 +148,6 @@ the added"
               (-> replica
                   (lww/add :note "This is a note." 2)
                   (lww/remove :note 3))
-              d))))
-    (testing "if dedupe? is false it retains the values even if the value is the same; makes it possible to implement undo or state restoration feature based on time"
-      (is (= #lww_element.core.Dict{:id "#id"
-                                    :added {}
-                                    :removed {:title #{{:val "Language History" :ts 2}
-                                                       {:val "Language History" :ts 1}}}}
-             (lww/merge
-              {:dedupe? false}
-              (lww/remove replica :title 2)
               d))))
     (testing "merge is variadic i.e. accepts any number of Dicts to merge"
       (is (= #lww_element.core.Dict{:id "#id",

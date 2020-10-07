@@ -166,40 +166,26 @@
     ([d k ts]
      (-remove d k ts))))
 
-(defn- de-dupe [coll]
-  (->> coll
-   (group-by :val) ;; group by val to see if there are any dupe
-   (reduce-kv
-    (fn [res k v]
-      (if (not= 1 (count v)) ;; if dupe, pick the one with the latest timestamp
-        (conj res
-              (->> v (sort-by :ts >) first))
-        (concat res v)))
-    [])))
-
 ;; merge
 (defn- merge-items [x y]
   (merge-with union-ts-desc-sort-set x y))
 
-(defn- put-entry [m entry to dedupe?]
-  {:pre [(boolean? dedupe?)]}
+(defn- put-entry [m entry to]
   (update-in m to
-             #(cond->> (set/union % entry)
-                dedupe? de-dupe
-                true (apply ts-desc-sorted-set))))
+             #(->> (set/union % entry)
+                   (apply ts-desc-sorted-set))))
 
-(defn- move-entry [m entry from to dedupe?]
+(defn- move-entry [m entry from to]
   (-> m
-      (put-entry entry to dedupe?)
+      (put-entry entry to)
       (update-in (butlast from) #(dissoc % (last from)))))
 
 ;; TODO handle only one dict
 (defn- merge-dict
   "Bias can be towards either :added or :removed.
    If not supplied, it defaults towards :added."
-  [{:keys [bias dedupe?]
-    :or {bias :added
-         dedupe? true}}
+  [{:keys [bias]
+    :or {bias :added}}
    d1 d2]
   {:pre [(contains? #{:added :removed} bias)]}
   (if (identical? (:id d1) (:id d2))
@@ -221,11 +207,11 @@
                     ;; use the bias provided (add or remove) and move the items
                     ;; otherwise merge the items and do the opposite
                     ;; merge and add to removed
-                    (move-entry res entry-in-added [:added k] [:removed k] dedupe?)
+                    (move-entry res entry-in-added [:added k] [:removed k])
                     (= (:ts (first v)) (:ts (first entry-in-added)))
                     (if (= bias :added)
-                      (move-entry res entry-in-added [:removed k] [:added k] dedupe?)
-                      (move-entry res entry-in-removed [:added k] [:removed k] dedupe?))
+                      (move-entry res entry-in-added [:removed k] [:added k])
+                      (move-entry res entry-in-removed [:added k] [:removed k]))
                     :else
                     (-> res
                         (update-in [:added k]
