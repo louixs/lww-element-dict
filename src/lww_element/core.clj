@@ -2,8 +2,10 @@
   (:refer-clojure :exclude [get merge remove update])
   (:require [clojure.set :as set]))
 
+(def default-max-item-count 10)
 (def max-size 10)
 
+;; helpers
 (defn- now []
   (inst-ms (java.util.Date.)))
 
@@ -30,28 +32,29 @@
   ;; in case ts is exactly the same, just providing one compare
   ;; will not add element to set and get lost
   ;; providing a tie-breaking function to prevent that
-  [max-size & items]
+  [max-item-count & items]
+  (println "max-item-count" max-item-count)
   (->> items
        (sort cmp-ts-vl-reverse)
-       (take max-size)
+       (take max-item-count)
        (apply sorted-set-by cmp-ts-vl-reverse)))
 
-(defn- union-ts-desc-sort-set [x y]
-  (apply ts-desc-sorted-set max-size  (set/union x y)))
+(defn- union-ts-desc-sorted-set [max-item-count x y]
+  (apply ts-desc-sorted-set max-item-count (set/union x y)))
 
 (defn- make-item-val [v ts]
   {:val v
    :ts ts})
 
-(defn- make-item [k v ts]
-  {k (ts-desc-sorted-set max-size (make-item-val v ts))})
+(defn- make-item [k v ts max-item-count]
+  {k (ts-desc-sorted-set max-item-count (make-item-val v ts))})
 
 (defn- make-dict-items
   "Use this to create items in either added or removed entries of Dict"
-  [m ts]
+  [m ts max-item-count]
   (reduce-kv
    (fn [res k v]
-     (clojure.core/merge res (make-item k v ts)))
+     (clojure.core/merge res (make-item k v ts max-item-count)))
    {}
    m))
 
@@ -59,14 +62,17 @@
   "Initialize dictionary data structure when
    instantiating a Dict. This can only be used
    when instantiating since it will automatically
-   add the map entries passed in to the 'added' items."
-  [m id ts]
+   add the map entries passed in to the 'added' items.
+   Note that because entries are not really removed, the item counts can grow infinitely
+   max-item-count is used to limit of the items each entry can hold to avoid the Dict to grow too large"
+  [m id ts max-item-count]
   {:pre [(map? m)]}
   {:id id
-   :added (make-dict-items m ts)
+   :max-item-count max-item-count
+   :added (make-dict-items m ts max-item-count)
    :removed {}})
 
-(defrecord Dict [id added removed])
+(defrecord Dict [id max-item-count added removed])
 
 (defn make-dict
   ([]
@@ -76,8 +82,9 @@
   ([m id]
    (make-dict m id (now)))
   ([m id ts]
-   {:pre [(map? m)]}
-   (map->Dict (init-dict m id ts))))
+   (make-dict m id ts default-max-item-count))
+  ([m id ts max-item-count]
+   (map->Dict (init-dict m id ts max-item-count))))
 
 (defprotocol Add
   (add [d k v] [d k v ts]))
@@ -85,20 +92,20 @@
 (defn- -add
   ([d k v]
    (-add d k v (now)))
-  ([d k v ts]
+  ([{:keys [max-item-count added removed] :as d} k v ts]
    (cond
-     (contains? (:removed d) k)
-       (let [existing-entry (clojure.core/get (:removed d) k)
+     (contains? removed k)
+       (let [existing-entry (clojure.core/get removed k)
              new-entry #{(make-item-val v ts)}
-             merged-entries (union-ts-desc-sort-set existing-entry new-entry)]
+             merged-entries (union-ts-desc-sorted-set max-item-count existing-entry new-entry)]
          (-> d
              ;; remove the entry from removed
              (clojure.core/update :removed #(dissoc % k))
              ;; add the new merged entry to added
              (assoc-in [:added k] merged-entries)))
-       ;; if there is no entry in added, just add a new entry
-     (not (contains? (:added d) k))
-       (assoc-in d [:added k] (k (make-item k v ts)))
+     ;; if there is no entry in added, just add a new entry
+     (not (contains? added k))
+       (assoc-in d [:added k] (k (make-item k v ts max-item-count)))
      :else
      ;; otherwise, don't do anything
      d)))
@@ -111,17 +118,17 @@
     ([d k v ts]
      (-add d k v ts))))
 
-(defn -update
-  ([d k v]
-   (-update d k v (now)))
-  ([d k v ts]
-   (if (contains? (:added d) k)
-     (update-in d [:added k] #(union-ts-desc-sort-set % (k (make-item k v ts))))
-     d)))
-
 (defprotocol Update
   "Retrieve the value of the specified value."
   (update [d k v] [d k v ts]))
+
+(defn -update
+  ([d k v]
+   (-update d k v (now)))
+  ([{:keys [added max-item-count] :as d} k v ts]
+   (if (contains? added k)
+     (update-in d [:added k] #(union-ts-desc-sorted-set max-item-count % (k (make-item k v ts max-item-count))))
+     d)))
 
 (extend-protocol Update
   Dict
@@ -131,6 +138,12 @@
     ([d k v ts]
      (-update d k v ts))))
 
+(defn- -get
+  "Retrieves the latest value in a Dict by key.
+   It assumes the items are ordered so that the latest value is on top."
+  [d k]
+  (-> d (get-in [:added k]) first :val))
+
 (defprotocol Get
   "Retrieve the value of the specified value"
   (get [d k]))
@@ -138,22 +151,19 @@
 (extend-protocol Get
   Dict
   (get [d k]
-    ;; Note that this implementation
-    ;; only retrieves the latest value
-    (-> d (get-in [:added k]) first :val)))
+    (-get d k)))
 
 (defn- -remove
   ([d k]
    (-remove d k (now)))
-  ([d k ts]
-   (if (contains? (:added d) k)
-     (let [added (:added d)
-           entries-to-remove (select-keys added [k])
+  ([{:keys [max-item-count added removed] :as d} k ts]
+   (if (contains? added k)
+     (let [entries-to-remove (select-keys added [k])
            entries-to-remove-ts-updated (clojure.core/update entries-to-remove k
                                                              #(->> %
                                                                    (map (fn [x] (assoc x :ts ts)))
-                                                                   (apply ts-desc-sorted-set max-size)))
-           new-removed (clojure.core/merge (:removed d)
+                                                                   (apply ts-desc-sorted-set max-item-count)))
+           new-removed (clojure.core/merge removed
                                            entries-to-remove-ts-updated)
            new-added (dissoc added k)]
        (assoc d :added new-added
@@ -172,20 +182,20 @@
      (-remove d k ts))))
 
 ;; merge
-(defn- merge-items [x y]
-  (merge-with union-ts-desc-sort-set x y))
+(defn- merge-items [max-item-count x y]
+  (merge-with (partial union-ts-desc-sorted-set max-item-count) x y))
 
-(defn- put-entry [m entry to]
+(defn- put-entry [max-item-count m entry to]
   (update-in m to
              #(->> (set/union % entry)
-                   (apply ts-desc-sorted-set max-size))))
+                   (apply ts-desc-sorted-set max-item-count))))
 
-(defn- move-entry [m entry from to]
+(defn- move-entry [max-item-count m entry from to]
   (-> m
-      (put-entry entry to)
+      (put-entry max-item-count entry to)
       (update-in (butlast from) #(dissoc % (last from)))))
 
-(defn- merge-dict
+(defn- merge-replicate
   "Bias can be towards either :added or :removed.
    If not supplied, it defaults towards :added."
   [{:keys [bias]
@@ -193,9 +203,9 @@
    d1 d2]
   {:pre [(contains? #{:added :removed} bias)]}
   (if (identical? (:id d1) (:id d2))
-    (let [added (merge-items (:added d1) (:added d2))
-          removed (merge-items (:removed d1) (:removed d2))
-          id (:id d1)]
+    (let [{:keys [id max-item-count]} d1
+          added (merge-items max-item-count (:added d1) (:added d2))
+          removed (merge-items max-item-count (:removed d1) (:removed d2))]
       (->> removed
            (reduce-kv
             (fn [res k v]
@@ -211,21 +221,22 @@
                     ;; use the bias provided (add or remove) and move the items
                     ;; otherwise merge the items and do the opposite
                     ;; merge and add to removed
-                    (move-entry res entry-in-added [:added k] [:removed k])
+                    (move-entry max-item-count res entry-in-added [:added k] [:removed k])
                     (= (:ts (first v)) (:ts (first entry-in-added)))
                     (if (= bias :added)
-                      (move-entry res entry-in-added [:removed k] [:added k])
-                      (move-entry res entry-in-removed [:added k] [:removed k]))
+                      (move-entry max-item-count res entry-in-added [:removed k] [:added k])
+                      (move-entry max-item-count res entry-in-removed [:added k] [:removed k]))
                     :else
                     (-> res
                         (update-in [:added k]
-                                   #(union-ts-desc-sort-set % v))
+                                   #(union-ts-desc-sorted-set max-item-count % v))
                         (clojure.core/update :removed #(dissoc % k))))
                   res)))
             (map->Dict {:id id
+                        :max-item-count max-item-count
                         :added added
                         :removed removed}))))
-    (throw (Exception. "Abort merge as you are probably not merging replicate."))))
+    (throw (Exception. "Abort merge as you are probably not merging replicates. ids of the Dicts need to be the same."))))
 
 (defprotocol Merge*
   (merge* [opts] [opts d1] [opts d1 d2]))
@@ -238,7 +249,7 @@
     ([opts d1]
      d1)
     ([opts d1 d2]
-     (merge-dict opts d1 d2))))
+     (merge-replicate opts d1 d2))))
 
 ;; protocol doesn't support
 ;; variadic functions
