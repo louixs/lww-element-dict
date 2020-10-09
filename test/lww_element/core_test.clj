@@ -6,19 +6,18 @@
 
 ;; Init
 (deftest make-dict-tests
-  (testing "it creates a lww_element.core.Dict with a supplied map, and add id and timestamp"
+  (testing "create dict"
     (is (= #lww_element.core.Dict{:id "#id"
                                   :max-item-count 10
                                   :added {:title #{{:val "My First Note" :ts 1}}}
                                   :removed {}}
-           (lww/make-dict {:title "My First Note"} "#id" 1 default-max-item-count))))
-  (testing "passing an empty map will create a dict with empty values"
+           (lww/make-dict {:title "My First Note"} "#id" 1 default-max-item-count)))
     (is (= #lww_element.core.Dict{:id "#id" :max-item-count 10 :added {} :removed {}}
            (lww/make-dict {} "#id" 1 default-max-item-count)))))
 
 ;; Add
 (deftest add
-  (testing "it inserts an entry if the key doesn't already exist in the added"
+  (testing "insert entry if the key doesn't already exist in the added set"
     (let [d (lww/make-dict {} "#id" default-max-item-count)]
       (is (= #lww_element.core.Dict{:id "#id"
                                     :max-item-count 10
@@ -38,7 +37,7 @@ the added"
                                                      {:val "Language History" :ts 2}}}
                                     :removed {}}
              (lww/add d k "New Title" 3)))))
-  (testing "if the same key is already in added, do nothing and return the dict"
+  (testing "if the same key is already in added, do nothing and return the dict. Updating is taken care by the update function"
     (let [k :title
           d (-> (lww/make-dict {} "#id" default-max-item-count)
                 (lww/add k "Language History" 1))]
@@ -51,14 +50,14 @@ the added"
 ;; Update
 (deftest update
   (let [d (lww/make-dict {:title "Language History"} "#id" 1 default-max-item-count)]
-    (testing "it inserts an updated value with a timestamp if the entry already exists in the added"
+    (testing "insert an updated value with a timestamp if the entry already exists in the added"
       (is (= #lww_element.core.Dict{:id "#id"
                                     :max-item-count 10
                                     :added {:title #{{:val "New Title" :ts 2}
                                                      {:val "Language History" :ts 1}}}
                                     :removed {}}
              (lww/update d :title "New Title" 2))))
-    (testing "it does nothing and just returns the dict if the insert key does not exist in the added"
+    (testing "do nothing and just return the dict if the insert key does not exist in the added"
       (is (= #lww_element.core.Dict{:id "#id"
                                     :max-item-count 10
                                     :added {:title #{{:val "Language History" :ts 1}}}
@@ -66,7 +65,7 @@ the added"
              (lww/update d :non-existing-entry "New Title" 2))))))
 
 (deftest max-item-count
-  (testing "Item counts of an entry in dict does not exceed the specified max count"
+  (testing "item counts of an entry in dict does not exceed the specified max count"
     (is (= #lww_element.core.Dict{:id "#id"
                                   :max-item-count 2
                                   :added {:title #{{:val "buz" :ts 4} {:val "bez" :ts 3}}}
@@ -80,10 +79,10 @@ the added"
 ;; GET
 (deftest get
   (let [d (lww/make-dict {:title "Language History"} "#id" 1)]
-    (testing "it retrieves the current/latest value of an entry from added"
+    (testing "retriev the current/latest value of an entry from the added set"
       (is (= "Language History"
              (lww/get d :title))))
-    (testing "it returns nil if the key does not exist"
+    (testing "return nil if the key does not exist"
       (is (nil? (lww/get d :non-existing-key))))))
 
 ;; Remove
@@ -91,13 +90,13 @@ the added"
 (deftest remove
   (let [k :title
         d (lww/make-dict {:title "Language History"} "#id" 1 default-max-item-count)]
-    (testing "it moves an entry from added to removed, and timestamp gets updated"
+    (testing "move an entry from added to removed, and timestamp gets updated"
       (is (= #lww_element.core.Dict{:id "#id"
                                     :max-item-count 10
                                     :added {}
                                     :removed {:title #{{:val "Language History" :ts 2}}}}
              (lww/remove d :title 2))))
-    (testing "it does nothing and just returns the provided dict if the entry does not exist in added"
+    (testing "do nothing and just return the provided dict if the entry does not exist in added"
       (is (= #lww_element.core.Dict{:id "#id"
                                     :max-item-count 10
                                     :added {:title #{{:val "Language History" :ts 1}}}
@@ -175,27 +174,30 @@ the added"
                   (lww/add :note "This is a note." 2)
                   (lww/remove :note 3))
               d))))
-    (testing "merge is variadic i.e. accepts any number of Dicts to merge"
+    (testing "merge is variadic i.e. accept any number of Dicts to merge"
       (is (= #lww_element.core.Dict{:id "#id"
                                     :max-item-count 10
                                     :added
                                     {:title #{{:val "Language History" :ts 1}}
                                      :foo #{{:val "foo" :ts 1}}
-                                     :bar #{{:val "bar" :ts 2}}}
+                                     :bar #{{:val "bar" :ts 2}}
+                                     :baz #{{:val "baz" :ts 3}}}
                                     :removed {}}
              (lww/merge
               default-opts
               (lww/add d :foo "foo" 1)
               (lww/add d :bar "bar" 2)
+              (lww/add d :baz "baz" 3)
               d))))
-    (testing "when only one Dict is supplied, just return that"
+    (testing "return dict when only one dict is supplied"
       (is (= d (lww/merge default-opts d))))
-    (testing "when only the options map is supplied return nil"
+    (testing "return nil when only the options map is supplied"
       (is (nil? (lww/merge default-opts))))
-    (testing "merging empty dicts returns empty dicts"
+    (testing "return empty dict when merging empty dicts"
       (is (= #lww_element.core.Dict{:id "#id" :max-item-count 10 :added {} :removed {}}
              (lww/merge
               default-opts
+              (-> (lww/make-dict {} "#id" 1))
               (-> (lww/make-dict {} "#id" 1))
               (-> (lww/make-dict {} "#id" 1))))))
     (testing "if trying to merge non-replica i.e. dicts' ids are different it throws an error"
