@@ -2,7 +2,7 @@
   (:require [clojure.test :as t :refer [deftest is testing]]
             [lww-element.core :as lww]))
 
-(def default-max-item-count 10)
+(defonce ^:private default-max-item-count 10)
 
 ;; Init
 (deftest make-dict-tests

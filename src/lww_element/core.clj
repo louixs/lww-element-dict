@@ -2,8 +2,7 @@
   (:refer-clojure :exclude [get merge remove update])
   (:require [clojure.set :as set]))
 
-(def default-max-item-count 10)
-(def max-size 10)
+(defonce ^:private default-max-item-count 10)
 
 ;; helpers
 (defn- now []
@@ -33,7 +32,6 @@
   ;; will not add element to set and get lost
   ;; providing a tie-breaking function to prevent that
   [max-item-count & items]
-  (println "max-item-count" max-item-count)
   (->> items
        (sort cmp-ts-vl-reverse)
        (take max-item-count)
@@ -191,9 +189,10 @@
                    (apply ts-desc-sorted-set max-item-count))))
 
 (defn- move-entry [max-item-count m entry from to]
-  (-> m
-      (put-entry max-item-count entry to)
-      (update-in (butlast from) #(dissoc % (last from)))))
+  (let [put (partial put-entry max-item-count)]
+    (-> m
+        (put entry to)
+        (update-in (butlast from) #(dissoc % (last from))))))
 
 (defn- merge-replicate
   "Bias can be towards either :added or :removed.
@@ -215,22 +214,22 @@
                 (if (contains? added k)
                   (cond
                     (> (:ts (first v)) (:ts (first entry-in-added)))
-                    ;; if the newest item's timestamp in removed is
-                    ;; newer, then the items need to be moved to removed
-                    ;; if the timestamp happens to be the same
-                    ;; use the bias provided (add or remove) and move the items
-                    ;; otherwise merge the items and do the opposite
-                    ;; merge and add to removed
-                    (move-entry max-item-count res entry-in-added [:added k] [:removed k])
+                      ;; if the newest item's timestamp in removed is
+                      ;; newer, then the items need to be moved to removed
+                      ;; if the timestamp happens to be the same
+                      ;; use the bias provided (add or remove) and move the items
+                      ;; otherwise merge the items and do the opposite
+                      ;; merge and add to removed
+                      (move-entry max-item-count res entry-in-added [:added k] [:removed k])
                     (= (:ts (first v)) (:ts (first entry-in-added)))
-                    (if (= bias :added)
-                      (move-entry max-item-count res entry-in-added [:removed k] [:added k])
-                      (move-entry max-item-count res entry-in-removed [:added k] [:removed k]))
+                      (if (= bias :added)
+                        (move-entry max-item-count res entry-in-added [:removed k] [:added k])
+                        (move-entry max-item-count res entry-in-removed [:added k] [:removed k]))
                     :else
-                    (-> res
-                        (update-in [:added k]
-                                   #(union-ts-desc-sorted-set max-item-count % v))
-                        (clojure.core/update :removed #(dissoc % k))))
+                      (-> res
+                          (update-in [:added k]
+                                     #(union-ts-desc-sorted-set max-item-count % v))
+                          (clojure.core/update :removed #(dissoc % k))))
                   res)))
             (map->Dict {:id id
                         :max-item-count max-item-count
