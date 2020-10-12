@@ -1,4 +1,5 @@
 (ns lww-element.core-test
+  (:refer-clojure :exclude [get merge remove update])
   (:require [clojure.test :as t :refer [deftest is testing]]
             [lww-element.core :as lww]))
 
