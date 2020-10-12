@@ -123,6 +123,9 @@ Gets the latest value of the specified key from the added set.
 ;;                       :removed {:title #{{:val "My Title", :ts 1601019625069}}}}
 ```
 
+# A note about ts - timestamp
+Except for the `get` function, all other functions _optionally_ accepts a ts (timestamp) argument as timestamp. The reason the timestamp argument is optional is mostly to make this data structure and accompanying protocols (functions) testable. By default it just uses current time in millisecond and the users of the function does not have to care about time as it is an internal details of this data structure.
+
 # Tests
 
 Tests are in the `test/lww_element` directory.
