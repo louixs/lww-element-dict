@@ -113,7 +113,7 @@ the added"
   (let [default-opts {}
         d (lww-dict/make-dict {:title "Language History"} "#id" 1 default-max-item-count)
         replica d] ;; clojure doesn't mutate value so this isn't strictly necessary; this is for clarify
-    (testing "if an entry is in added and removed, the one with the latest timestamp wins"
+    (testing "if an entry is in added and/or removed, the one with the latest timestamp wins"
       (is (= #lww_element.dict.Dict{:id "#id"
                                     :max-item-count 10
                                     :added
@@ -129,12 +129,13 @@ the added"
       (is (= #lww_element.dict.Dict{:id "#id"
                                     :max-item-count 10
                                     :added {}
-                                    :removed {:title #{{:val "Language History" :ts 2}
-                                                       {:val "Language History" :ts 1}}}}
+                                    :removed {:title #{{:val "Language History", :ts 3}
+                                                       {:val "Updated Title", :ts 2}
+                                                       {:val "Language History", :ts 1}} }}
              (lww-dict/merge
               default-opts
-              (lww-dict/remove replica :title 2)
-              d))))
+              (lww-dict/update d :title "Updated Title" 2)
+              (lww-dict/remove replica :title 3)))))
     (testing "When timestamp is equal for removing and adding an entry, 'bias' (either :added or :removed) is used to chooses where to place it in the merged output, default bias is :added"
       (is (= #lww_element.dict.Dict{:id "#id"
                                     :max-item-count 10
@@ -142,7 +143,7 @@ the added"
                                                       :ts 1}}}
                                     :removed {}}
              (lww-dict/merge
-              default-opts
+              {:bias :added} ;; default bias is added but being explicit here for clarity
               (lww-dict/remove replica :title 1)
               d)))
       (is (= #lww_element.dict.Dict{:id "#id"
