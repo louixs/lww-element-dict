@@ -1,5 +1,5 @@
-(ns lww-element.core-property-test
-  (:require [lww-element.core :as lww]
+(ns lww-element.dict-property-test
+  (:require [lww-element.dict :as lww-dict]
             [clojure.test.check.clojure-test :refer [defspec]]
             [clojure.test.check.generators :as gen]
             [clojure.test.check.properties :as prop]))
@@ -12,13 +12,13 @@
 
 (defonce gen-dict
   (gen/fmap (fn [[m id ts]]
-              (lww/make-dict m id ts))
+              (lww-dict/make-dict m id ts))
             (gen/tuple
              gen-map
              gen-id
              gen/large-integer)))
 
-(defonce merge-fn (partial lww/merge {}))
+(defonce merge-fn (partial lww-dict/merge {}))
 
 ;; Applying merge is same as applying it twice
 ;; given the same inputs

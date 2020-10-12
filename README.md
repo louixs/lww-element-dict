@@ -9,26 +9,26 @@ I am also aware that each key-value pair is supposed have a timestamp but I want
 
 # Creating an instance of Dict
 ``` clojure
-(require [lww-element.core :as lww])
+(require [lww-element.dict :as lww-dict])
 ;; require the lww namespace
 
-(lww/make-dict {:title "My Title"})
+(lww-dict/make-dict {:title "My Title"})
 ;; this returns a dict
 ;; =>
-;; #lww_element.core.Dict{:id "b6081449-139f-4b0f-aa82-b375fa595588",
+;; #lww_element.dict.Dict{:id "b6081449-139f-4b0f-aa82-b375fa595588",
 ;;                        :added {:title #{{:val "My Title", :ts 1601017478040}}},
 ;;                        :removed {}}
 
 ;; Optionally you can supply id, timestamp, and/or max-item-count
 ;; Note that timestamp needs to be a comparable values with the 'comp' function
-(lww/make-dict
+(lww-dict/make-dict
  {:title "My Title"}
  "#id" ;; id
  1 ;; timestamp
  10 ;; max-item-count
  )
 ;; =>
-;;#lww_element.core.Dict{:id "#id",
+;;#lww_element.dict.Dict{:id "#id",
 ;;                       :max-item-count 10
 ;;                       :added {:title #{{:val "My Title", :ts 1}}},
 ;;                       :removed {}}
@@ -39,11 +39,11 @@ I am also aware that each key-value pair is supposed have a timestamp but I want
 Works almost like assoc in Clojure but it doesn't upate the value if the key already exists. It puts an element to the :added set. It also accepts optional timestamp param. If it's not provided it puts the current time in milliseconds when the function runs. 
 
 ``` clojure
-(def d (lww/make-dict {:title "My Title"}))
+(def d (lww-dict/make-dict {:title "My Title"}))
 
-(lww/add d :note "My note")
+(lww-dict/add d :note "My note")
 ;; =>
-;;#lww_element.core.Dict{:id "ade4ed3e-4383-4c27-8298-c240028c70fd",
+;;#lww_element.dict.Dict{:id "ade4ed3e-4383-4c27-8298-c240028c70fd",
 ;;                       :max-item-count 10
 ;;                       :added
 ;;                       {:title #{{:val "My Title", :ts 1601018506011}},
@@ -54,10 +54,10 @@ Works almost like assoc in Clojure but it doesn't upate the value if the key alr
 # Update
 
 ``` clojure
-(def d (lww/make-dict {:title "My Title"}))
-(lww/update d :title "New Title")
+(def d (lww-dict/make-dict {:title "My Title"}))
+(lww-dict/update d :title "New Title")
 ;; =>
-;;#lww_element.core.Dict{:id "a51f3949-cfc4-4df9-8f1e-82e513866377",
+;;#lww_element.dict.Dict{:id "a51f3949-cfc4-4df9-8f1e-82e513866377",
 ;;                       :max-item-count 10
 ;;                       :added
 ;;                       {:title
@@ -71,11 +71,11 @@ Works almost like assoc in Clojure but it doesn't upate the value if the key alr
 If an element exists, it moves from the :added set to the :removed set. Timestamp also gets updated. It also allows an optional timestamp param to make running tests easier.
 
 ``` clojure
-(def d (lww/make-dict {:title "My Title"}))
+(def d (lww-dict/make-dict {:title "My Title"}))
 
-(lww/remove d :title)
+(lww-dict/remove d :title)
 ;; =>
-;;#lww_element.core.Dict{:id "36cb2bca-035f-4a85-b062-48cdbdef8e0d",
+;;#lww_element.dict.Dict{:id "36cb2bca-035f-4a85-b062-48cdbdef8e0d",
 ;;                       :max-item-count 10
 ;;                       :added {},
 ;;                       :removed {:title #{{:val "My Title", :ts 1601018762901}}}}
@@ -86,23 +86,23 @@ If an element exists, it moves from the :added set to the :removed set. Timestam
 Gets the latest value of the specified key from the added set.
 
 ``` clojure
-(def d (lww/make-dict {:title "My Title"}))
-(lww/get d :title)
+(def d (lww-dict/make-dict {:title "My Title"}))
+(lww-dict/get d :title)
 ;; => "My Title"
 ```
 
 # Merge
 
 ``` clojure
-(def d (lww/make-dict {:title "My Title"}))
+(def d (lww-dict/make-dict {:title "My Title"}))
 (def replica d)
 
-(lww/merge 
+(lww-dict/merge 
  d
- (lww/add replica :note "My Note"))
+ (lww-dict/add replica :note "My Note"))
 
 ;; =>
-;;#lww_element.core.Dict{:id "481a5ba0-dba2-4d38-b132-35415a7bf3c8",
+;;#lww_element.dict.Dict{:id "481a5ba0-dba2-4d38-b132-35415a7bf3c8",
 ;;                       :max-item-count 10
 ;;                       :added
 ;;                       {:title #{{:val "My Title", :ts 1601019191306}},
@@ -113,13 +113,11 @@ Gets the latest value of the specified key from the added set.
 ;; in any of the replicas, the element
 ;; gets moved to removed in the merged dict
 (def replica-edited
-  (lww/remove replica :title))
+  (lww-dict/remove replica :title))
 
-(lww/merge
- d
- replica-edited)
+(lww-dict/merge d replica-edited)
 ;; =>
-;;#lww_element.core.Dict{:id "0f44ec6e-8103-40f7-b523-a4500d9f521c",
+;;#lww_element.dict.Dict{:id "0f44ec6e-8103-40f7-b523-a4500d9f521c",
 ;;                       :max-item-count 10
 ;;                       :added {},
 ;;                       :removed {:title #{{:val "My Title", :ts 1601019625069}}}}
@@ -128,8 +126,8 @@ Gets the latest value of the specified key from the added set.
 # Tests
 
 Tests are in the `test/lww_element` directory.
-Example based tests are defined in `core_test.clj`. These are used to test and document API against normal inputs as well as some edge cases.
-Property based tests are defined in `core_property_test.clj`. These mainly test the property of merge function as it needs to have these three properties commutative, associative and idempotent. 
+Example based tests are defined in `dict_test.clj`. These are used to test and document API against normal inputs as well as some edge cases.
+Property based tests are defined in `dict_property_test.clj`. These mainly test the property of merge function as it needs to have these three properties commutative, associative and idempotent. 
 
 To run tests:
 - Please [install](https://clojure.org/guides/getting_started#_clojure_installer_and_cli_tools) Clojure 
