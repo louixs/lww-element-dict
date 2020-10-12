@@ -17,8 +17,8 @@
   (compare (:val y) (:val x)))
 
 (defn- cmp-ts-vl-reverse
-  "Compare ts first and if there's a tie break
-  use val to compare"
+  "Compare using :ts first and if there's a tie break
+  compare based on :val"
   [x y]
   (let [c (cmp-ts-reverse x y)]
     (if-not (zero? c)
