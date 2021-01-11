@@ -4,14 +4,10 @@ This is a LWW-Element-Dict implementation based on [LWW-Element-Set](https://en.
 
 The main namespace is lww-element and not lww-element-dict. This is to allow room for potential addition of other data types. The dict name space resides in the `dict.clj` file under the lww-element folder. dict type is definied with defrecord for simplicity and for performance. Furthermore, protocols are used to allow polymorphism. For this implementation, it is not strictly necessary to allow extensibility but I have chosen to add it with protocols since in practice it is a good option to have e.g. add lww-element-set. 
 
-Some of the functions diverge from the idiomatic Clojure functions. For example "add" could have been called "assoc". Assoc is the function to add data into a map in Clojure. One reason for not calling assoc is because add only allows adding but not updating. Another reason for choosing such names is to align with the description of LWW-Element-Dictionary [here](https://github.com/GoodNotes/interviews/blob/master/software-engineering.md) for clarify.
+Some of the functions diverge from the idiomatic Clojure functions. For example "add" could have been called "assoc". Assoc is the function to add data into a map in Clojure. One reason for not calling assoc is because add only allows adding but not updating. Another reason for choosing such names is to align with the description of LWW-Element-Dictionary [here](https://github.com/GoodNotes/interviews/blob/master/software-engineering.md) for clarity.
 I have defined an update function to allow update.
 
-I am also aware that each key-value pair is only supposed have a timestamp. But I wanted to approach it slightly differently in favour of a more realistic implementation where each key has a set of value and timestamp pairs instead. This can be used to implement for example undo, or change history. Naturally this can add to one of the downsides of state-based CRDT by increasing the size of the data to be passed around. To avoid infinite growth of added or removed sets, max-item-count parameter is used to specify the maximum number of items that can be held in each set. The default max-item-count is 10 but it can be overridden when making a new dict with make-dict. To make the behavior of the functions clear I have provided some simple documentation here. Complete set of behaviour is documented in the test files in `test/lww_element/dict_test.clj`. 
-
-I have also decided to make the `merge` function variadic. The requirement asks only to merge two dictionaries. However, I believe, being able to merge more than one dict just like Clojure core's merge function is going to be useful in realistic use cases. 
-
-These are the trade-offs I have made between over-complicating and simplicity. I believe the choises I have made for this implementaion is reasonable since it enhances practical applicability as well as extensibility. 
+Each key in a dict has a set of value and timestamp pairs. This can be used to implement undo or change history for example. Naturally this can add to one of the downsides of state-based CRDT by increasing the size of the data to be passed around. To avoid infinite growth of added or removed sets, I've provided max-item-count parameter to specify the maximum number of items that can be held in each set. The default max-item-count is 10 but it can be overridden when making a new dict with make-dict. Complete set of behaviour is documented in the test files in `test/lww_element/dict_test.clj`. You can also find some exaples under the Usage section below. 
 
 # Usage
 
@@ -132,7 +128,7 @@ Gets the latest value of the specified key from the added set.
 ```
 
 # A note about ts - timestamp
-Except for the `get` function, all other functions _optionally_ accepts a ts (timestamp) argument as timestamp. The reason the timestamp argument is optional is mostly to make this data structure and accompanying protocols (functions) testable. By default it just uses current time in millisecond and the users of the function does not have to care about time as it is an internal details of this data structure.
+Except for the `get` function, all other functions _optionally_ accept a ts (timestamp) argument. One reason for the optional timestamp argument is to make this data structure and accompanying protocols (functions) testable. By default it just uses current time in millisecond and the users of the function does not have to care about time as it is an internal details of this data structure.
 
 # Tests
 
@@ -145,5 +141,5 @@ To run tests:
 - Clone this project
 - Run `clj -A:test` in the root directory of this project
 
-You can of course run the tests using your favourite editor if you have your editor configured. Emacs' Cider provides excellent tools to develop and test Clojure code.
+You can of course run the tests using your favourite editor if you have your editor configured. Emacs' Cider provides exellent tools to develop and test Clojure code.
   
